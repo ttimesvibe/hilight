@@ -1,3 +1,7 @@
 name = "hilight"
 main = "index.js"
 compatibility_date = "2024-01-01"
+
+[[kv_namespaces]]
+binding = "SESSIONS"
+id = "41a11a71bd72436dbad9f5ce324dd555"

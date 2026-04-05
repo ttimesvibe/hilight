@@ -5,38 +5,58 @@ const WORKER_URL = "https://hilight.ttimes.workers.dev";
 const FN = "'Pretendard Variable','Pretendard','Noto Sans KR',-apple-system,sans-serif";
 const C = {
   bg:"#F5F6FA",sf:"#FFFFFF",bd:"#D8DBE5",tx:"#1A1D2E",txM:"#5C6078",txD:"#8B8FA3",
-  ac:"#5B4CD4",acS:"rgba(91,76,212,0.08)",
+  ac:"#0891B2",acS:"rgba(8,145,178,0.08)",
   hl:"#00E5FF",hlBg:"rgba(0,229,255,0.18)",hlBd:"rgba(0,229,255,0.4)",
   ok:"#16A34A",okBg:"rgba(22,163,74,0.08)",
   wn:"#D97706",wnBg:"rgba(217,119,6,0.06)",wnBd:"rgba(217,119,6,0.15)",
+  host:"rgba(0,0,0,0.02)",hostBd:"rgba(0,0,0,0.06)",
   inputBg:"rgba(0,0,0,0.03)",glass:"rgba(0,0,0,0.02)",glass2:"rgba(0,0,0,0.04)",
-  btnTx:"#fff",gradAc:"linear-gradient(135deg,#5B4CD4,#7C3AED)",
-  gradHl:"linear-gradient(135deg,#0891B2,#06B6D4)",
+  btnTx:"#fff",gradHl:"linear-gradient(135deg,#0891B2,#06B6D4)",
 };
-const CPS = 5.5; // 초당 글자수 (한국어 말하기 속도)
+const CPS = 5.5;
 
 export default function App() {
   const [fn, setFn] = useState("");
   const [script, setScript] = useState("");
-  const [blocks, setBlocks] = useState([]); // [{speaker, time, text, id}]
-  const [clips, setClips] = useState([]); // [{id, text, blockId, reason?}]
-  const [recs, setRecs] = useState([]); // LLM recommendations
+  const [blocks, setBlocks] = useState([]);
+  const [clips, setClips] = useState([]);
+  const [recs, setRecs] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [err, setErr] = useState(null);
   const [dragOver, setDragOver] = useState(false);
   const [dragIdx, setDragIdx] = useState(null);
   const [copied, setCopied] = useState(false);
   const [showRecs, setShowRecs] = useState(true);
-  const scriptRef = useRef(null);
+  const [shareUrl, setShareUrl] = useState(null);
+  const [sessionId, setSessionId] = useState(null);
 
-  // 원고 파싱: 화자 블록 단위로 분리
+  // URL에서 세션 로드
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sid = params.get("s");
+    if (sid) {
+      setSessionId(sid);
+      fetch(WORKER_URL + "/load?id=" + sid)
+        .then(r => r.json())
+        .then(data => {
+          if (data.success && data.session) {
+            setFn(data.session.filename || "");
+            setScript(data.session.script || "");
+            setBlocks(data.session.blocks || []);
+            setClips(data.session.clips || []);
+            setRecs(data.session.recs || []);
+          }
+        }).catch(() => {});
+    }
+  }, []);
+
   const parseScript = (text) => {
     const lines = text.split("\n").filter(l => l.trim());
     const result = [];
     let id = 0;
     const speakerRe = /^([가-힣a-zA-Z]+)\s+(\d{1,2}:\d{2})/;
     let current = null;
-
     for (const line of lines) {
       const m = line.match(speakerRe);
       if (m) {
@@ -52,28 +72,24 @@ export default function App() {
 
   const processFile = useCallback(async (file) => {
     if (!file) return;
-    setFn(file.name); setErr(null); setClips([]); setRecs([]);
+    setFn(file.name); setErr(null); setClips([]); setRecs([]); setShareUrl(null); setSessionId(null);
     try {
       let text;
       if (file.name.endsWith(".docx")) {
         const buf = await file.arrayBuffer();
         text = (await mammoth.extractRawText({ arrayBuffer: buf })).value;
-      } else {
-        text = await file.text();
-      }
+      } else { text = await file.text(); }
       setScript(text);
       setBlocks(parseScript(text));
     } catch (e) { setErr("파일 읽기 실패: " + e.message); }
   }, []);
 
-  // LLM 추천 요청
   const getRecommendations = useCallback(async () => {
     if (!script) return;
     setLoading(true); setErr(null);
     try {
       const res = await fetch(WORKER_URL + "/recommend", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ script }),
       });
       const data = await res.json();
@@ -83,92 +99,90 @@ export default function App() {
     finally { setLoading(false); }
   }, [script]);
 
-  // 텍스트 선택 → 클립 추가
+  // 저장
+  const saveSession = useCallback(async () => {
+    setSaving(true);
+    try {
+      const session = { filename: fn, script, blocks, clips, recs, savedAt: new Date().toISOString() };
+      const res = await fetch(WORKER_URL + "/save", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: sessionId, session }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+      setSessionId(data.id);
+      const url = window.location.origin + window.location.pathname + "?s=" + data.id;
+      setShareUrl(url);
+      window.history.replaceState(null, "", "?s=" + data.id);
+    } catch (e) { setErr("저장 실패: " + e.message); }
+    finally { setSaving(false); }
+  }, [fn, script, blocks, clips, recs, sessionId]);
+
+  // 공유 URL 복사
+  const copyShareUrl = () => {
+    if (shareUrl) {
+      navigator.clipboard.writeText(shareUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
   const handleTextSelect = useCallback(() => {
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
     const text = sel.toString().trim();
     if (text.length < 5) return;
-    // 중복 체크
     if (clips.some(c => c.text === text)) return;
-    setClips(prev => [...prev, {
-      id: Date.now() + Math.random(),
-      text,
-      seconds: Math.round(text.length / CPS),
-    }]);
+    setClips(prev => [...prev, { id: Date.now() + Math.random(), text, seconds: Math.round(text.length / CPS) }]);
     sel.removeAllRanges();
   }, [clips]);
 
-  // 추천에서 추가
   const addFromRec = (rec) => {
     if (clips.some(c => c.text === rec.text)) return;
-    setClips(prev => [...prev, {
-      id: Date.now() + Math.random(),
-      text: rec.text,
-      seconds: Math.round(rec.text.length / CPS),
-      reason: rec.reason,
-    }]);
+    setClips(prev => [...prev, { id: Date.now() + Math.random(), text: rec.text, seconds: Math.round(rec.text.length / CPS), reason: rec.reason }]);
   };
 
-  // 클립 삭제
   const removeClip = (id) => setClips(prev => prev.filter(c => c.id !== id));
 
-  // 드래그 순서 변경
   const handleDragStart = (idx) => setDragIdx(idx);
   const handleDragOver = (e, idx) => {
     e.preventDefault();
     if (dragIdx === null || dragIdx === idx) return;
-    setClips(prev => {
-      const next = [...prev];
-      const [moved] = next.splice(dragIdx, 1);
-      next.splice(idx, 0, moved);
-      return next;
-    });
+    setClips(prev => { const next = [...prev]; const [m] = next.splice(dragIdx, 1); next.splice(idx, 0, m); return next; });
     setDragIdx(idx);
   };
   const handleDragEnd = () => setDragIdx(null);
 
-  // 총 시간 계산
-  const totalSeconds = clips.reduce((sum, c) => sum + (c.seconds || Math.round(c.text.length / CPS)), 0);
+  const totalSeconds = clips.reduce((s, c) => s + (c.seconds || Math.round(c.text.length / CPS)), 0);
 
-  // 전체 복사
   const copyAll = () => {
     const text = clips.map((c, i) => `[${i + 1}] ${c.text}`).join("\n\n");
     navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setCopied(true); setTimeout(() => setCopied(false), 2000);
   };
 
-  // 원고에서 하이라이트 표시 (선택된 클립의 텍스트를 형광펜 표시)
   const renderBlock = (block) => {
     let html = block.text;
-    // 클립에 포함된 텍스트를 하이라이트
     for (const clip of clips) {
       const idx = html.indexOf(clip.text);
       if (idx >= 0) {
-        html = html.substring(0, idx) +
-          `<mark style="background:${C.hlBg};border-bottom:2px solid ${C.hl};padding:1px 0">${clip.text}</mark>` +
-          html.substring(idx + clip.text.length);
+        html = html.substring(0, idx) + `<mark style="background:${C.hlBg};border-bottom:2px solid ${C.hl};padding:1px 0">${clip.text}</mark>` + html.substring(idx + clip.text.length);
       }
     }
-    // 추천 구간 표시 (선택 안 된 것만)
-    for (const rec of recs) {
-      if (clips.some(c => c.text === rec.text)) continue;
-      const idx = html.indexOf(rec.text);
-      if (idx >= 0 && !html.substring(idx - 50, idx).includes("<mark")) {
-        html = html.substring(0, idx) +
-          `<span style="background:${C.wnBg};border-bottom:1px dashed ${C.wn};padding:1px 0;cursor:pointer" title="💡 AI 추천: ${rec.reason}">${rec.text}</span>` +
-          html.substring(idx + rec.text.length);
+    if (showRecs) {
+      for (const rec of recs) {
+        if (clips.some(c => c.text === rec.text)) continue;
+        const idx = html.indexOf(rec.text);
+        if (idx >= 0 && !html.substring(Math.max(0, idx - 50), idx).includes("<mark")) {
+          html = html.substring(0, idx) + `<span style="background:${C.wnBg};border-bottom:1px dashed ${C.wn};padding:1px 0;cursor:pointer" title="💡 AI 추천: ${rec.reason}">${rec.text}</span>` + html.substring(idx + rec.text.length);
+        }
       }
     }
     return html;
   };
 
-  const reset = () => {
-    setFn(""); setScript(""); setBlocks([]); setClips([]); setRecs([]); setErr(null);
-  };
+  const reset = () => { setFn(""); setScript(""); setBlocks([]); setClips([]); setRecs([]); setErr(null); setShareUrl(null); setSessionId(null); window.history.replaceState(null, "", window.location.pathname); };
 
-  // 분량 상태 색상
   const getTimeColor = () => {
     if (totalSeconds >= 30 && totalSeconds <= 40) return C.ok;
     if (totalSeconds > 40) return "#DC2626";
@@ -177,15 +191,24 @@ export default function App() {
 
   return <div style={{fontFamily:FN,background:C.bg,minHeight:"100vh",color:C.tx}}>
     {/* Header */}
-    <div style={{background:C.sf,borderBottom:"1px solid "+C.bd,padding:"14px 20px",display:"flex",alignItems:"center",gap:12}}>
-      <div style={{fontSize:16,fontWeight:800,color:"#0891B2"}}>✂️ 하이라이트 생성기</div>
+    <div style={{background:C.sf,borderBottom:"1px solid "+C.bd,padding:"14px 20px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+      <div style={{fontSize:16,fontWeight:800,color:C.ac}}>✂️ 하이라이트 생성기</div>
       {fn && <span style={{fontSize:12,color:C.txM,background:C.glass2,padding:"3px 10px",borderRadius:6}}>{fn}</span>}
       {clips.length > 0 && <span style={{fontSize:12,fontWeight:700,color:getTimeColor(),background:totalSeconds>=30&&totalSeconds<=40?C.okBg:"transparent",padding:"3px 10px",borderRadius:6}}>
-        {totalSeconds}초 / 30~40초 목표
+        {totalSeconds}초 / 30~40초
       </span>}
       <div style={{marginLeft:"auto",display:"flex",gap:8}}>
-        {clips.length > 0 && <button onClick={copyAll} style={{fontSize:12,padding:"5px 14px",borderRadius:6,border:"none",background:copied?C.ok:"#0891B2",color:C.btnTx,fontWeight:600,cursor:"pointer"}}>
-          {copied ? "✓ 복사 완료" : "📋 전체 복사"}</button>}
+        {clips.length > 0 && <>
+          <button onClick={saveSession} disabled={saving}
+            style={{fontSize:12,padding:"5px 14px",borderRadius:6,border:"none",background:saving?"#999":C.ac,color:C.btnTx,fontWeight:600,cursor:"pointer"}}>
+            {saving ? "저장 중..." : shareUrl ? "💾 다시 저장" : "💾 저장"}</button>
+          {shareUrl && <button onClick={copyShareUrl}
+            style={{fontSize:12,padding:"5px 14px",borderRadius:6,border:"1px solid "+C.ac,background:copied?C.ac:C.sf,color:copied?C.btnTx:C.ac,fontWeight:600,cursor:"pointer"}}>
+            {copied ? "✓ 복사됨" : "🔗 공유"}</button>}
+          <button onClick={copyAll}
+            style={{fontSize:12,padding:"5px 14px",borderRadius:6,border:"1px solid "+C.bd,background:C.sf,color:C.txM,cursor:"pointer"}}>
+            📋 텍스트 복사</button>
+        </>}
         {fn && <button onClick={reset} style={{fontSize:12,padding:"5px 14px",borderRadius:6,border:"1px solid "+C.bd,background:C.sf,color:C.txM,cursor:"pointer"}}>× 새 파일</button>}
       </div>
     </div>
@@ -195,14 +218,11 @@ export default function App() {
       <div style={{textAlign:"center",marginBottom:32}}>
         <div style={{fontSize:48,marginBottom:16}}>✂️</div>
         <h1 style={{fontSize:24,fontWeight:700,marginBottom:8}}>하이라이트 생성기</h1>
-        <p style={{fontSize:14,color:C.txM,lineHeight:1.7}}>
-          인터뷰 원고에서 하이라이트 구간을 선택하고<br/>순서를 조정하여 30~40초 하이라이트를 만듭니다.
-        </p>
+        <p style={{fontSize:14,color:C.txM,lineHeight:1.7}}>인터뷰 원고에서 하이라이트 구간을 선택하고<br/>순서를 조정하여 30~40초 하이라이트를 만듭니다.</p>
       </div>
       <div onDragOver={e=>{e.preventDefault();setDragOver(true)}} onDragLeave={()=>setDragOver(false)}
         onDrop={e=>{e.preventDefault();setDragOver(false);processFile(e.dataTransfer.files[0])}}
-        style={{border:"2px dashed "+(dragOver?"#0891B2":C.bd),borderRadius:16,padding:"48px 32px",textAlign:"center",
-          background:dragOver?"rgba(8,145,178,0.05)":C.sf,cursor:"pointer"}}
+        style={{border:"2px dashed "+(dragOver?C.ac:C.bd),borderRadius:16,padding:"48px 32px",textAlign:"center",background:dragOver?C.acS:C.sf,cursor:"pointer"}}
         onClick={()=>document.getElementById("fi").click()}>
         <div style={{fontSize:32,marginBottom:12,opacity:0.5}}>📄</div>
         <div style={{fontSize:14,fontWeight:600,marginBottom:6}}>원고 파일 업로드</div>
@@ -213,44 +233,36 @@ export default function App() {
 
     {/* Main Editor */}
     {blocks.length > 0 && <div style={{display:"flex",height:"calc(100vh - 53px)",overflow:"hidden"}}>
-
       {/* Left: Script */}
-      <div style={{flex:1,overflowY:"auto",padding:"16px 20px",borderRight:"1px solid "+C.bd}} ref={scriptRef}
-        onMouseUp={handleTextSelect}>
-        {/* AI 추천 버튼 */}
+      <div style={{flex:1,overflowY:"auto",padding:"16px 20px",borderRight:"1px solid "+C.bd}} onMouseUp={handleTextSelect}>
         {recs.length === 0 && <div style={{marginBottom:16,display:"flex",gap:8,alignItems:"center"}}>
           <button onClick={getRecommendations} disabled={loading}
-            style={{padding:"8px 18px",borderRadius:8,border:"none",background:C.gradHl,color:C.btnTx,
-              fontSize:13,fontWeight:600,cursor:loading?"wait":"pointer",opacity:loading?0.6:1}}>
-            {loading ? "⏳ AI 분석 중..." : "💡 AI 하이라이트 추천"}
-          </button>
+            style={{padding:"8px 18px",borderRadius:8,border:"none",background:C.gradHl,color:C.btnTx,fontSize:13,fontWeight:600,cursor:loading?"wait":"pointer",opacity:loading?0.6:1}}>
+            {loading ? "⏳ AI 분석 중..." : "💡 AI 하이라이트 추천"}</button>
           <span style={{fontSize:12,color:C.txD}}>원고를 드래그하여 직접 선택할 수도 있습니다</span>
         </div>}
 
         {recs.length > 0 && <div style={{marginBottom:16,display:"flex",gap:8,alignItems:"center"}}>
           <button onClick={()=>setShowRecs(!showRecs)}
             style={{padding:"5px 12px",borderRadius:6,border:"1px solid "+C.wnBd,background:C.wnBg,color:C.wn,fontSize:12,fontWeight:600,cursor:"pointer"}}>
-            {showRecs ? "💡 AI 추천 숨기기" : "💡 AI 추천 표시"}
-          </button>
+            {showRecs ? "💡 AI 추천 숨기기" : "💡 AI 추천 표시"}</button>
           <span style={{fontSize:12,color:C.txD}}>
-            <span style={{color:C.hl}}>■</span> 선택됨 &nbsp;
-            {showRecs && <><span style={{color:C.wn}}>┅</span> AI 추천</>}
+            <span style={{color:C.hl}}>■</span> 선택됨
+            {showRecs && <> &nbsp;<span style={{color:C.wn}}>┅</span> AI 추천</>}
           </span>
         </div>}
 
         {err && <div style={{marginBottom:12,padding:"10px 14px",borderRadius:8,background:"rgba(220,38,38,0.08)",color:"#DC2626",fontSize:13}}>⚠️ {err}</div>}
 
-        {/* 원고 블록 */}
         {blocks.map(block => {
           const isHost = ["홍재의"].includes(block.speaker);
           return <div key={block.id} style={{marginBottom:12,padding:"8px 12px",borderRadius:8,
-            background:isHost?C.glass:C.sf,border:"1px solid "+(isHost?"transparent":C.bd),
-            opacity:isHost?0.5:1}}>
-            <div style={{fontSize:11,color:C.txD,marginBottom:4,fontWeight:600}}>
+            background:isHost?C.host:C.sf,border:"1px solid "+(isHost?C.hostBd:C.bd)}}>
+            <div style={{fontSize:11,color:isHost?C.txD:C.txM,marginBottom:4,fontWeight:600}}>
               {block.speaker} <span style={{fontWeight:400}}>{block.time}</span>
             </div>
-            <div style={{fontSize:14,lineHeight:1.8,color:C.tx,userSelect:isHost?"none":"text"}}
-              dangerouslySetInnerHTML={{__html: showRecs ? renderBlock(block) : renderBlock({...block, text: block.text})}}/>
+            <div style={{fontSize:14,lineHeight:1.8,color:isHost?C.txM:C.tx}}
+              dangerouslySetInnerHTML={{__html: renderBlock(block)}}/>
           </div>;
         })}
       </div>
@@ -262,30 +274,25 @@ export default function App() {
           {clips.length}개 클립 · <span style={{fontWeight:700,color:getTimeColor()}}>{totalSeconds}초</span> / 30~40초
         </div>
 
-        {/* 분량 바 */}
         <div style={{height:6,background:C.bd,borderRadius:3,marginBottom:16,overflow:"hidden",position:"relative"}}>
           <div style={{height:"100%",borderRadius:3,transition:"width 0.3s",
             width:Math.min(totalSeconds/40*100,100)+"%",
-            background:totalSeconds>40?"#DC2626":totalSeconds>=30?C.ok:"#0891B2"}}/>
-          {/* 30초 마커 */}
+            background:totalSeconds>40?"#DC2626":totalSeconds>=30?C.ok:C.ac}}/>
           <div style={{position:"absolute",left:"75%",top:0,width:1,height:"100%",background:C.txD,opacity:0.4}}/>
         </div>
 
         {clips.length === 0 && <div style={{textAlign:"center",padding:"40px 16px",color:C.txD,fontSize:13}}>
           왼쪽 원고에서 텍스트를 드래그하여<br/>하이라이트 구간을 추가하세요.
-          {recs.length > 0 && <div style={{marginTop:12,fontSize:12}}>또는 아래 AI 추천에서 선택하세요.</div>}
         </div>}
 
-        {/* 클립 목록 (드래그 순서 변경) */}
         {clips.map((clip, idx) => <div key={clip.id} draggable
           onDragStart={()=>handleDragStart(idx)}
           onDragOver={e=>handleDragOver(e,idx)}
           onDragEnd={handleDragEnd}
           style={{padding:"10px 12px",marginBottom:8,borderRadius:8,border:"1px solid "+C.hlBd,
-            background:C.hlBg,cursor:"grab",position:"relative",
-            opacity:dragIdx===idx?0.5:1}}>
+            background:C.hlBg,cursor:"grab",opacity:dragIdx===idx?0.5:1}}>
           <div style={{display:"flex",alignItems:"flex-start",gap:8}}>
-            <span style={{fontSize:11,color:"#0891B2",fontWeight:800,flexShrink:0,marginTop:2}}>{idx+1}</span>
+            <span style={{fontSize:11,color:C.ac,fontWeight:800,flexShrink:0,marginTop:2}}>{idx+1}</span>
             <div style={{flex:1,minWidth:0}}>
               <div style={{fontSize:13,lineHeight:1.6,color:C.tx,wordBreak:"break-word"}}>{clip.text}</div>
               <div style={{fontSize:11,color:C.txD,marginTop:4}}>~{clip.seconds || Math.round(clip.text.length/CPS)}초</div>
@@ -295,13 +302,14 @@ export default function App() {
           </div>
         </div>)}
 
-        {/* AI 추천 (미선택분) */}
         {recs.length > 0 && <div style={{marginTop:20}}>
-          <div style={{fontSize:13,fontWeight:700,color:C.wn,marginBottom:8}}>💡 AI 추천 ({recs.filter(r=>!clips.some(c=>c.text===r.text)).length}개 남음)</div>
+          <div style={{fontSize:13,fontWeight:700,color:C.wn,marginBottom:8}}>
+            💡 AI 추천 ({recs.filter(r=>!clips.some(c=>c.text===r.text)).length}개 남음)
+          </div>
           {recs.filter(r => !clips.some(c => c.text === r.text)).map((rec, i) => <div key={i}
             onClick={() => addFromRec(rec)}
             style={{padding:"8px 10px",marginBottom:6,borderRadius:8,border:"1px solid "+C.wnBd,
-              background:C.wnBg,cursor:"pointer",transition:"all 0.15s"}}>
+              background:C.wnBg,cursor:"pointer"}}>
             <div style={{fontSize:12,lineHeight:1.6,color:C.tx}}>{rec.text}</div>
             <div style={{fontSize:11,color:C.wn,marginTop:4}}>
               {rec.impact === "high" ? "⭐" : "○"} {rec.reason} · ~{rec.estimated_seconds || Math.round(rec.text.length/CPS)}초
