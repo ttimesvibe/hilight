@@ -132,14 +132,14 @@ export default function App() {
     if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
     const text = sel.toString().trim();
     if (text.length < 5) return;
-    if (clips.some(c => c.text === text)) return;
-    setClips(prev => [...prev, { id: Date.now() + Math.random(), text, seconds: Math.round(text.length / CPS) }]);
+    if (clips.some(c => c.originalText === text || c.text === text)) return;
+    setClips(prev => [...prev, { id: Date.now() + Math.random(), text, originalText: text, seconds: Math.round(text.length / CPS) }]);
     sel.removeAllRanges();
   }, [clips]);
 
   const addFromRec = (rec) => {
-    if (clips.some(c => c.text === rec.text)) return;
-    setClips(prev => [...prev, { id: Date.now() + Math.random(), text: rec.text, seconds: Math.round(rec.text.length / CPS), reason: rec.reason }]);
+    if (clips.some(c => c.originalText === rec.text || c.text === rec.text)) return;
+    setClips(prev => [...prev, { id: Date.now() + Math.random(), text: rec.text, originalText: rec.text, seconds: Math.round(rec.text.length / CPS), reason: rec.reason }]);
   };
 
   const removeClip = (id) => setClips(prev => prev.filter(c => c.id !== id));
@@ -164,14 +164,15 @@ export default function App() {
   const renderBlock = (block) => {
     let html = block.text;
     for (const clip of clips) {
-      const idx = html.indexOf(clip.text);
+      const matchText = clip.originalText || clip.text;
+      const idx = html.indexOf(matchText);
       if (idx >= 0) {
-        html = html.substring(0, idx) + `<mark style="background:${C.hlBg};border-bottom:2px solid ${C.hl};padding:1px 0">${clip.text}</mark>` + html.substring(idx + clip.text.length);
+        html = html.substring(0, idx) + `<mark style="background:${C.hlBg};border-bottom:2px solid ${C.hl};padding:1px 0">${matchText}</mark>` + html.substring(idx + matchText.length);
       }
     }
     if (showRecs) {
       for (const rec of recs) {
-        if (clips.some(c => c.text === rec.text)) continue;
+        if (clips.some(c => (c.originalText || c.text) === rec.text)) continue;
         const idx = html.indexOf(rec.text);
         if (idx >= 0 && !html.substring(Math.max(0, idx - 50), idx).includes("<mark")) {
           html = html.substring(0, idx) + `<span style="background:${C.wnBg};border-bottom:1px dashed ${C.wn};padding:1px 0;cursor:pointer" title="💡 AI 추천: ${rec.reason}">${rec.text}</span>` + html.substring(idx + rec.text.length);
