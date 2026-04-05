@@ -294,7 +294,9 @@ export default function App() {
           <div style={{display:"flex",alignItems:"flex-start",gap:8}}>
             <span style={{fontSize:11,color:C.ac,fontWeight:800,flexShrink:0,marginTop:2}}>{idx+1}</span>
             <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:13,lineHeight:1.6,color:C.tx,wordBreak:"break-word"}}>{clip.text}</div>
+              <textarea value={clip.text} onChange={e=>{const v=e.target.value;setClips(prev=>prev.map(c=>c.id===clip.id?{...c,text:v,seconds:Math.round(v.length/CPS)}:c))}}
+                style={{fontSize:13,lineHeight:1.6,color:C.tx,wordBreak:"break-word",width:"100%",border:"none",background:"transparent",resize:"none",outline:"none",fontFamily:FN,padding:0,overflow:"hidden"}}
+                rows={Math.max(1,Math.ceil(clip.text.length/30))}/>
               <div style={{fontSize:11,color:C.txD,marginTop:4}}>~{clip.seconds || Math.round(clip.text.length/CPS)}초</div>
             </div>
             <button onClick={()=>removeClip(clip.id)}
