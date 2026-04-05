@@ -192,7 +192,7 @@ export default function App() {
   return <div style={{fontFamily:FN,background:C.bg,minHeight:"100vh",color:C.tx}}>
     {/* Header */}
     <div style={{background:C.sf,borderBottom:"1px solid "+C.bd,padding:"14px 20px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
-      <div style={{fontSize:16,fontWeight:800,color:C.ac}}>✂️ 하이라이트 생성기</div>
+      <div style={{fontSize:16,fontWeight:800,color:C.ac}}>✂️ 하이라이트 편집기</div>
       {fn && <span style={{fontSize:12,color:C.txM,background:C.glass2,padding:"3px 10px",borderRadius:6}}>{fn}</span>}
       {clips.length > 0 && <span style={{fontSize:12,fontWeight:700,color:getTimeColor(),background:totalSeconds>=30&&totalSeconds<=40?C.okBg:"transparent",padding:"3px 10px",borderRadius:6}}>
         {totalSeconds}초 / 30~40초
@@ -217,7 +217,7 @@ export default function App() {
     {!script && !loading && <div style={{maxWidth:560,margin:"80px auto",padding:"0 24px"}}>
       <div style={{textAlign:"center",marginBottom:32}}>
         <div style={{fontSize:48,marginBottom:16}}>✂️</div>
-        <h1 style={{fontSize:24,fontWeight:700,marginBottom:8}}>하이라이트 생성기</h1>
+        <h1 style={{fontSize:24,fontWeight:700,marginBottom:8}}>하이라이트 편집기</h1>
         <p style={{fontSize:14,color:C.txM,lineHeight:1.7}}>인터뷰 원고에서 하이라이트 구간을 선택하고<br/>순서를 조정하여 30~40초 하이라이트를 만듭니다.</p>
       </div>
       <div onDragOver={e=>{e.preventDefault();setDragOver(true)}} onDragLeave={()=>setDragOver(false)}
