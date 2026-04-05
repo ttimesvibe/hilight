@@ -13,7 +13,7 @@ const C = {
   inputBg:"rgba(0,0,0,0.03)",glass:"rgba(0,0,0,0.02)",glass2:"rgba(0,0,0,0.04)",
   btnTx:"#fff",gradHl:"linear-gradient(135deg,#0891B2,#06B6D4)",
 };
-const CPS = 5.5;
+const CPS = 9.0; // ttimes 학습 데이터 기준 542.7자/분
 
 export default function App() {
   const [fn, setFn] = useState("");
