@@ -292,11 +292,18 @@ export default function App() {
           style={{padding:"10px 12px",marginBottom:8,borderRadius:8,border:"1px solid "+C.hlBd,
             background:C.hlBg,cursor:"grab",opacity:dragIdx===idx?0.5:1}}>
           <div style={{display:"flex",alignItems:"flex-start",gap:8}}>
-            <span style={{fontSize:11,color:C.ac,fontWeight:800,flexShrink:0,marginTop:2}}>{idx+1}</span>
+            <span style={{fontSize:11,color:C.ac,fontWeight:800,flexShrink:0,marginTop:8,cursor:"grab"}}>{idx+1}</span>
             <div style={{flex:1,minWidth:0}}>
-              <textarea value={clip.text} onChange={e=>{const v=e.target.value;setClips(prev=>prev.map(c=>c.id===clip.id?{...c,text:v,seconds:Math.round(v.length/CPS)}:c))}}
-                style={{fontSize:13,lineHeight:1.6,color:C.tx,wordBreak:"break-word",width:"100%",border:"none",background:"transparent",resize:"none",outline:"none",fontFamily:FN,padding:0,overflow:"hidden"}}
-                rows={Math.max(1,Math.ceil(clip.text.length/30))}/>
+              <textarea value={clip.text}
+                onMouseDown={e=>e.stopPropagation()}
+                onDragStart={e=>e.stopPropagation()}
+                onChange={e=>{const v=e.target.value;setClips(prev=>prev.map(c=>c.id===clip.id?{...c,text:v,seconds:Math.round(v.length/CPS)}:c))}}
+                style={{fontSize:13,lineHeight:1.6,color:C.tx,width:"100%",border:"1px solid transparent",
+                  background:"rgba(255,255,255,0.5)",borderRadius:4,resize:"none",outline:"none",fontFamily:FN,
+                  padding:"4px 6px",cursor:"text"}}
+                onFocus={e=>{e.target.style.borderColor=C.ac;e.target.style.background="#fff"}}
+                onBlur={e=>{e.target.style.borderColor="transparent";e.target.style.background="rgba(255,255,255,0.5)"}}
+                rows={Math.max(2,Math.ceil(clip.text.length/28))}/>
               <div style={{fontSize:11,color:C.txD,marginTop:4}}>~{clip.seconds || Math.round(clip.text.length/CPS)}초</div>
             </div>
             <button onClick={()=>removeClip(clip.id)}
