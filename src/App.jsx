@@ -132,14 +132,24 @@ export default function App() {
     if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
     const text = sel.toString().trim();
     if (text.length < 5) return;
-    if (clips.some(c => c.originalText === text || c.text === text)) return;
-    setClips(prev => [...prev, { id: Date.now() + Math.random(), text, originalText: text, seconds: Math.round(text.length / CPS) }]);
+    if (clips.some(c => c.originalText === text)) return;
+    // Find which block the selection is in
+    let blockId = null;
+    let node = sel.anchorNode;
+    while (node && node !== document.body) {
+      if (node.dataset && node.dataset.blockid !== undefined) { blockId = parseInt(node.dataset.blockid); break; }
+      node = node.parentNode;
+    }
+    setClips(prev => [...prev, { id: Date.now() + Math.random(), text, originalText: text, blockId, seconds: Math.round(text.length / CPS) }]);
     sel.removeAllRanges();
   }, [clips]);
 
   const addFromRec = (rec) => {
     if (clips.some(c => c.originalText === rec.text || c.text === rec.text)) return;
-    setClips(prev => [...prev, { id: Date.now() + Math.random(), text: rec.text, originalText: rec.text, seconds: Math.round(rec.text.length / CPS), reason: rec.reason }]);
+    // Find blockId for rec by searching blocks
+    let blockId = null;
+    for (const b of blocks) { if (b.text.includes(rec.text)) { blockId = b.id; break; } }
+    setClips(prev => [...prev, { id: Date.now() + Math.random(), text: rec.text, originalText: rec.text, blockId, seconds: Math.round(rec.text.length / CPS), reason: rec.reason }]);
   };
 
   const removeClip = (id) => setClips(prev => prev.filter(c => c.id !== id));
@@ -164,6 +174,8 @@ export default function App() {
   const renderBlock = (block) => {
     let html = block.text;
     for (const clip of clips) {
+      // Only highlight in the block where it was selected
+      if (clip.blockId !== null && clip.blockId !== undefined && clip.blockId !== block.id) continue;
       const matchText = clip.originalText || clip.text;
       const idx = html.indexOf(matchText);
       if (idx >= 0) {
@@ -257,7 +269,7 @@ export default function App() {
 
         {blocks.map(block => {
           const isHost = ["홍재의"].includes(block.speaker);
-          return <div key={block.id} style={{marginBottom:12,padding:"8px 12px",borderRadius:8,
+          return <div key={block.id} data-blockid={block.id} style={{marginBottom:12,padding:"8px 12px",borderRadius:8,
             background:isHost?C.host:C.sf,border:"1px solid "+(isHost?C.hostBd:C.bd)}}>
             <div style={{fontSize:11,color:isHost?C.txD:C.txM,marginBottom:4,fontWeight:600}}>
               {block.speaker} <span style={{fontWeight:400}}>{block.time}</span>
