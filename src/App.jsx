@@ -55,7 +55,7 @@ export default function App() {
     const lines = text.split("\n").filter(l => l.trim());
     const result = [];
     let id = 0;
-    const speakerRe = /^([가-힣a-zA-Z]+)\s+(\d{1,2}:\d{2})/;
+    const speakerRe = /^([가-힣a-zA-Z]+)\s+(\d{1,2}:\d{2}(?::\d{2})?)/;
     let current = null;
     for (const line of lines) {
       const m = line.match(speakerRe);
