@@ -88,26 +88,40 @@ export default {
       }
     }
 
-    // POST /save — KV에 세션 저장
+    // POST /save — 최종 저장 (TTL 365일)
     if (url.pathname === "/save" && request.method === "POST") {
       try {
         if (!env.SESSIONS) return Response.json({ success: false, error: "KV not configured" }, { headers: cors, status: 500 });
         var body = await request.json();
         var id = body.id || generateId();
-        await env.SESSIONS.put("hl_" + id, JSON.stringify(body.session), { expirationTtl: 60 * 60 * 24 * 30 }); // 30일
+        await env.SESSIONS.put("save_" + id, JSON.stringify(body.session), { expirationTtl: 60 * 60 * 24 * 365 });
         return Response.json({ success: true, id: id }, { headers: cors });
       } catch (e) {
         return Response.json({ success: false, error: e.message }, { headers: cors, status: 500 });
       }
     }
 
-    // GET /load?id=xxx — KV에서 세션 로드
+    // POST /autosave — 자동 저장 (TTL 7일)
+    if (url.pathname === "/autosave" && request.method === "POST") {
+      try {
+        if (!env.SESSIONS) return Response.json({ success: false, error: "KV not configured" }, { headers: cors, status: 500 });
+        var body = await request.json();
+        var id = body.id || generateId();
+        await env.SESSIONS.put("auto_" + id, JSON.stringify(body.session), { expirationTtl: 60 * 60 * 24 * 7 });
+        return Response.json({ success: true, id: id }, { headers: cors });
+      } catch (e) {
+        return Response.json({ success: false, error: e.message }, { headers: cors, status: 500 });
+      }
+    }
+
+    // GET /load?id=xxx — KV에서 세션 로드 (save_ 우선, auto_ 폴백)
     if (url.pathname === "/load" && request.method === "GET") {
       try {
         if (!env.SESSIONS) return Response.json({ success: false, error: "KV not configured" }, { headers: cors, status: 500 });
         var id = url.searchParams.get("id");
         if (!id) return Response.json({ success: false, error: "id required" }, { headers: cors });
-        var data = await env.SESSIONS.get("hl_" + id);
+        var data = await env.SESSIONS.get("save_" + id);
+        if (!data) data = await env.SESSIONS.get("auto_" + id);
         if (!data) return Response.json({ success: false, error: "session not found" }, { headers: cors });
         return Response.json({ success: true, session: JSON.parse(data) }, { headers: cors });
       } catch (e) {

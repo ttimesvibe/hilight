@@ -99,7 +99,7 @@ export default function App() {
     finally { setLoading(false); }
   }, [script]);
 
-  // 저장
+  // 최종 저장 (TTL 1년)
   const saveSession = useCallback(async () => {
     setSaving(true);
     try {
@@ -114,9 +114,51 @@ export default function App() {
       const url = window.location.origin + window.location.pathname + "?s=" + data.id;
       setShareUrl(url);
       window.history.replaceState(null, "", "?s=" + data.id);
+      setLastSavedClips(JSON.stringify(clips));
     } catch (e) { setErr("저장 실패: " + e.message); }
     finally { setSaving(false); }
   }, [fn, script, blocks, clips, recs, sessionId]);
+
+  // 자동 저장 (TTL 7일) — 변경 감지 + 3분 디바운스
+  const [lastSavedClips, setLastSavedClips] = useState("");
+  const [autoSaveStatus, setAutoSaveStatus] = useState(""); // "", "pending", "saving", "saved"
+  const autoSaveTimer = useRef(null);
+
+  useEffect(() => {
+    // clips가 변경됐고, 이전 저장 상태와 다르면 3분 타이머 시작
+    if (!script || clips.length === 0) return;
+    const currentState = JSON.stringify(clips);
+    if (currentState === lastSavedClips) return; // 변경 없음
+
+    setAutoSaveStatus("pending");
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+
+    autoSaveTimer.current = setTimeout(async () => {
+      setAutoSaveStatus("saving");
+      try {
+        const session = { filename: fn, script, blocks, clips, recs, savedAt: new Date().toISOString() };
+        const id = sessionId || (Date.now().toString(36) + Math.random().toString(36).substring(2, 8));
+        const res = await fetch(WORKER_URL + "/autosave", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, session }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          if (!sessionId) {
+            setSessionId(data.id);
+            window.history.replaceState(null, "", "?s=" + data.id);
+          }
+          setLastSavedClips(JSON.stringify(clips));
+          setAutoSaveStatus("saved");
+          setTimeout(() => setAutoSaveStatus(""), 3000);
+        }
+      } catch (e) {
+        setAutoSaveStatus("");
+      }
+    }, 3 * 60 * 1000); // 3분
+
+    return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
+  }, [clips, script, fn, blocks, recs, sessionId, lastSavedClips]);
 
   // 공유 URL 복사
   const copyShareUrl = () => {
@@ -209,6 +251,9 @@ export default function App() {
       {fn && <span style={{fontSize:12,color:C.txM,background:C.glass2,padding:"3px 10px",borderRadius:6}}>{fn}</span>}
       {clips.length > 0 && <span style={{fontSize:12,fontWeight:700,color:getTimeColor(),background:totalSeconds>=30&&totalSeconds<=40?C.okBg:"transparent",padding:"3px 10px",borderRadius:6}}>
         {totalSeconds}초 / 30~40초
+      </span>}
+      {autoSaveStatus && <span style={{fontSize:11,color:autoSaveStatus==="saved"?C.ok:C.txD,padding:"3px 8px",borderRadius:6,background:autoSaveStatus==="saved"?C.okBg:C.glass2}}>
+        {autoSaveStatus==="pending"?"⏳ 자동 저장 대기":autoSaveStatus==="saving"?"💾 자동 저장 중...":"✓ 자동 저장됨"}
       </span>}
       <div style={{marginLeft:"auto",display:"flex",gap:8}}>
         {clips.length > 0 && <>
