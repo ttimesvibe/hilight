@@ -173,7 +173,7 @@ export default function App() {
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
     const text = sel.toString().trim();
-    if (text.length < 5) return;
+    if (text.length < 3) return;
     if (clips.some(c => c.originalText === text)) return;
     // Find which block the selection is in
     let blockId = null;
@@ -238,7 +238,7 @@ export default function App() {
     if (idx >= 0) return { start: idx, end: idx + clipText.length, exact: true };
     // 2) Try progressively shorter substrings from the clip (sliding window)
     // Use chunks of 20+ chars from the clip to find the block region
-    const minChunk = 20;
+    const minChunk = 3;
     if (clipText.length < minChunk) return null;
     // Try to find the longest matching substring
     let bestStart = -1, bestEnd = -1, bestLen = 0;
