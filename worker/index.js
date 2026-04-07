@@ -129,6 +129,68 @@ export default {
       }
     }
 
+    // POST /timestamps — 유튜브 타임스탬프 생성
+    if (url.pathname === "/timestamps" && request.method === "POST") {
+      try {
+        var body = await request.json();
+        if (!body.script) return Response.json({ success: false, error: "script required" }, { headers: cors });
+        var apiKey = env.OPENAI_API_KEY;
+        if (!apiKey) return Response.json({ success: false, error: "OPENAI_API_KEY not configured" }, { headers: cors, status: 500 });
+
+        var tsPrompt = `당신은 유튜브 인터뷰 영상의 챕터(타임스탬프)를 생성하는 전문가입니다.
+
+## 작업
+인터뷰 원고를 읽고, 유튜브 영상 설명란에 넣을 타임스탬프(챕터)를 생성합니다.
+
+## 핵심 규칙
+1. 토픽이 전환되는 지점을 찾아서 5~10개의 챕터로 나누기
+2. 각 챕터의 제목은 시청자가 검색할 만한 구체적이고 흥미로운 문구 (SEO 최적화)
+3. "인트로", "아웃트로", "마무리" 같은 일반적인 제목 대신 내용을 반영한 제목 사용
+4. 각 챕터 전환점이 원고 어디에 있는지 "해당 구간의 첫 문장"을 anchor_text로 제공
+
+## 중요
+- 원고의 화자 타임스탬프는 편집 전 원본 시간이므로 무시하세요
+- 최종 영상 시간은 별도로 계산됩니다
+- 당신은 오직 "토픽 전환점"과 "소제목"만 잡아주면 됩니다
+
+## 출력 형식 (JSON만 출력)
+{
+  "chapters": [
+    {
+      "title": "챕터 제목 (검색 최적화된 구체적 문구)",
+      "anchor_text": "이 챕터가 시작되는 원고의 첫 문장 또는 핵심 구절 (정확히 발췌)",
+      "summary": "이 구간에서 다루는 내용 한 줄 요약"
+    }
+  ],
+  "video_title_suggestion": "영상 전체를 아우르는 제목 제안 (선택)"
+}
+
+## 규칙
+- 첫 번째 챕터는 영상 시작 부분 (인트로 대신 내용 반영 제목)
+- 5~10개 챕터 생성
+- anchor_text는 원고에서 정확히 발췌 (수정하지 말 것)
+- 챕터 제목은 15자 이내로 간결하게`;
+
+        var res = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: { "Authorization": "Bearer " + apiKey, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "gpt-4.1",
+            messages: [{ role: "system", content: tsPrompt }, { role: "user", content: compressScript(body.script, 14000) }],
+            temperature: 0.4, max_tokens: 2000,
+          }),
+        });
+        var data = await res.json();
+        if (data.error) throw new Error(data.error.message);
+        var content = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || "";
+        var jm = content.match(/\{[\s\S]*\}/);
+        if (!jm) throw new Error("JSON parse failed");
+        return Response.json({ success: true, result: JSON.parse(jm[0]) }, { headers: cors });
+      } catch (e) {
+        return Response.json({ success: false, error: e.message }, { headers: cors, status: 500 });
+      }
+    }
+
     return new Response("Highlight Generator v2", { headers: cors });
   },
 };

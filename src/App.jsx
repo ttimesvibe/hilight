@@ -30,6 +30,10 @@ export default function App() {
   const [showRecs, setShowRecs] = useState(true);
   const [shareUrl, setShareUrl] = useState(null);
   const [sessionId, setSessionId] = useState(null);
+  const [timestamps, setTimestamps] = useState(null); // LLM 생성 챕터
+  const [showTimestamps, setShowTimestamps] = useState(true);
+  const [tsLoading, setTsLoading] = useState(false);
+  const [tsCopied, setTsCopied] = useState(false);
 
   // URL에서 세션 로드
   useEffect(() => {
@@ -303,7 +307,62 @@ export default function App() {
     return html;
   };
 
-  const reset = () => { setFn(""); setScript(""); setBlocks([]); setClips([]); setRecs([]); setErr(null); setShareUrl(null); setSessionId(null); window.history.replaceState(null, "", window.location.pathname); };
+  const reset = () => { setFn(""); setScript(""); setBlocks([]); setClips([]); setRecs([]); setErr(null); setShareUrl(null); setSessionId(null); setTimestamps(null); window.history.replaceState(null, "", window.location.pathname); };
+
+  // 영상 길이 예측 (선형회귀: 영상길이(분) = 0.001210 × 글자수 + 7.05)
+  const SLOPE = 0.001210;
+  const INTERCEPT = 7.05;
+  const predictMinutes = (totalChars) => SLOPE * totalChars + INTERCEPT;
+
+  // 타임스탬프 생성
+  const generateTimestamps = useCallback(async () => {
+    if (!script) return;
+    setTsLoading(true); setErr(null);
+    try {
+      const res = await fetch(WORKER_URL + "/timestamps", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ script }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+      const chapters = data.result.chapters || [];
+      // 전체 원고 글자수 기반 영상 길이 예측
+      const totalChars = blocks.reduce((s, b) => s + b.text.length, 0);
+      const totalMin = predictMinutes(totalChars);
+      // 각 챕터의 원고 내 위치를 찾아서 시간 배분
+      const fullText = blocks.map(b => b.text).join(" ");
+      const withTimes = chapters.map((ch, i) => {
+        let charPos = 0;
+        if (i === 0) {
+          charPos = 0; // 첫 챕터는 항상 0:00
+        } else {
+          // anchor_text로 원고 내 위치 찾기
+          const match = findBestMatch(fullText, ch.anchor_text || "");
+          if (match) {
+            charPos = match.start;
+          } else {
+            // 폴백: 균등 분배
+            charPos = Math.round((i / chapters.length) * fullText.length);
+          }
+        }
+        const ratio = charPos / fullText.length;
+        const timeMin = ratio * totalMin;
+        const mm = Math.floor(timeMin);
+        const ss = Math.round((timeMin - mm) * 60);
+        return { ...ch, time: `${mm}:${ss.toString().padStart(2, "0")}`, ratio, charPos };
+      });
+      setTimestamps(withTimes);
+      setShowTimestamps(true);
+    } catch (e) { setErr("타임스탬프 생성 실패: " + e.message); }
+    finally { setTsLoading(false); }
+  }, [script, blocks]);
+
+  const copyTimestamps = () => {
+    if (!timestamps) return;
+    const text = timestamps.map(t => `${t.time} ${t.title}`).join("\n");
+    navigator.clipboard.writeText(text);
+    setTsCopied(true); setTimeout(() => setTsCopied(false), 2000);
+  };
 
   const getTimeColor = () => {
     if (totalSeconds >= 30 && totalSeconds <= 40) return C.ok;
@@ -323,6 +382,9 @@ export default function App() {
         {autoSaveStatus==="pending"?"⏳ 자동 저장 대기":autoSaveStatus==="saving"?"💾 자동 저장 중...":"✓ 자동 저장됨"}
       </span>}
       <div style={{marginLeft:"auto",display:"flex",gap:8}}>
+        {blocks.length > 0 && <button onClick={generateTimestamps} disabled={tsLoading}
+          style={{fontSize:12,padding:"5px 14px",borderRadius:6,border:"1px solid #8B5CF6",background:tsLoading?"#999":"rgba(139,92,246,0.08)",color:tsLoading?"#fff":"#8B5CF6",fontWeight:600,cursor:"pointer"}}>
+          {tsLoading ? "생성 중..." : "📌 타임스탬프"}</button>}
         {clips.length > 0 && <>
           <button onClick={saveSession} disabled={saving}
             style={{fontSize:12,padding:"5px 14px",borderRadius:6,border:"none",background:saving?"#999":C.ac,color:C.btnTx,fontWeight:600,cursor:"pointer"}}>
@@ -394,6 +456,34 @@ export default function App() {
 
       {/* Right: Clip Panel */}
       <div style={{width:360,flexShrink:0,overflowY:"auto",background:C.sf,padding:"16px 16px"}}>
+        {/* Timestamp Section */}
+        {timestamps && <div style={{marginBottom:20,borderRadius:10,border:"1px solid rgba(139,92,246,0.3)",background:"rgba(139,92,246,0.04)",overflow:"hidden"}}>
+          <div style={{padding:"10px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:showTimestamps?"1px solid rgba(139,92,246,0.15)":"none"}}>
+            <div style={{fontSize:13,fontWeight:700,color:"#8B5CF6"}}>📌 타임스탬프 ({timestamps.length}개)</div>
+            <div style={{display:"flex",gap:6}}>
+              <button onClick={copyTimestamps}
+                style={{fontSize:11,padding:"3px 10px",borderRadius:5,border:"1px solid rgba(139,92,246,0.3)",background:tsCopied?"#8B5CF6":"transparent",color:tsCopied?"#fff":"#8B5CF6",cursor:"pointer",fontWeight:600}}>
+                {tsCopied ? "✓ 복사됨" : "📋 복사"}</button>
+              <button onClick={()=>setShowTimestamps(!showTimestamps)}
+                style={{fontSize:11,padding:"3px 8px",borderRadius:5,border:"1px solid rgba(139,92,246,0.2)",background:"transparent",color:"#8B5CF6",cursor:"pointer"}}>
+                {showTimestamps ? "▲" : "▼"}</button>
+            </div>
+          </div>
+          {showTimestamps && <div style={{padding:"8px 14px 12px"}}>
+            {timestamps.map((t, i) => <div key={i} style={{padding:"6px 0",borderBottom:i<timestamps.length-1?"1px solid rgba(139,92,246,0.08)":"none",display:"flex",gap:10,alignItems:"flex-start"}}>
+              <span style={{fontSize:13,fontWeight:700,color:"#8B5CF6",flexShrink:0,fontVariantNumeric:"tabular-nums",minWidth:36}}>{t.time}</span>
+              <div>
+                <div style={{fontSize:13,fontWeight:600,color:C.tx,lineHeight:1.5}}>{t.title}</div>
+                {t.summary && <div style={{fontSize:11,color:C.txD,marginTop:2,lineHeight:1.4}}>{t.summary}</div>}
+              </div>
+            </div>)}
+            <div style={{marginTop:10,padding:"8px 10px",borderRadius:6,background:"rgba(139,92,246,0.06)",fontSize:11,color:C.txD,lineHeight:1.5}}>
+              ⏱ 예상 영상 길이: <strong style={{color:"#8B5CF6"}}>{Math.floor(predictMinutes(blocks.reduce((s,b)=>s+b.text.length,0)))}분 {Math.round((predictMinutes(blocks.reduce((s,b)=>s+b.text.length,0)) % 1) * 60)}초</strong>
+              <span style={{marginLeft:4,fontSize:10,color:C.txD}}>(오차 ±3%)</span>
+            </div>
+          </div>}
+        </div>}
+
         <div style={{fontSize:14,fontWeight:700,marginBottom:4}}>✂️ 하이라이트 구성</div>
         <div style={{fontSize:12,color:C.txD,marginBottom:12}}>
           {clips.length}개 클립 · <span style={{fontWeight:700,color:getTimeColor()}}>{totalSeconds}초</span> / 30~40초
