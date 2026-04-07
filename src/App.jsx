@@ -188,10 +188,34 @@ export default function App() {
 
   const addFromRec = (rec) => {
     if (clips.some(c => c.originalText === rec.text || c.text === rec.text)) return;
-    // Find blockId for rec by searching blocks
+    // Find blockId — try exact match first, then normalized match
     let blockId = null;
-    for (const b of blocks) { if (b.text.includes(rec.text)) { blockId = b.id; break; } }
+    const normalize = (s) => s.replace(/\s+/g, " ").trim();
+    const recNorm = normalize(rec.text);
+    for (const b of blocks) {
+      if (b.text.includes(rec.text)) { blockId = b.id; break; }
+    }
+    if (blockId === null) {
+      for (const b of blocks) {
+        if (normalize(b.text).includes(recNorm)) { blockId = b.id; break; }
+      }
+    }
     setClips(prev => [...prev, { id: Date.now() + Math.random(), text: rec.text, originalText: rec.text, blockId, seconds: Math.round(rec.text.length / CPS), reason: rec.reason }]);
+    // Scroll to the matching block in the left panel
+    const scrollTarget = blockId !== null ? blockId : blocks.findIndex(b => normalize(b.text).includes(recNorm));
+    const targetId = blockId !== null ? blockId : (scrollTarget >= 0 ? blocks[scrollTarget].id : null);
+    if (targetId !== null) {
+      setTimeout(() => {
+        const el = document.querySelector(`[data-blockid="${targetId}"]`);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+          // Brief flash effect to draw attention
+          el.style.transition = "box-shadow 0.3s";
+          el.style.boxShadow = `0 0 0 2px ${C.ac}`;
+          setTimeout(() => { el.style.boxShadow = ""; }, 1500);
+        }
+      }, 50);
+    }
   };
 
   const removeClip = (id) => setClips(prev => prev.filter(c => c.id !== id));
@@ -219,9 +243,22 @@ export default function App() {
       // Only highlight in the block where it was selected
       if (clip.blockId !== null && clip.blockId !== undefined && clip.blockId !== block.id) continue;
       const matchText = clip.originalText || clip.text;
-      const idx = html.indexOf(matchText);
+      let idx = html.indexOf(matchText);
       if (idx >= 0) {
         html = html.substring(0, idx) + `<mark style="background:${C.hlBg};border-bottom:2px solid ${C.hl};padding:1px 0">${matchText}</mark>` + html.substring(idx + matchText.length);
+      } else {
+        // Fallback: match first 15 chars to find approximate location, then highlight
+        const prefix = matchText.replace(/\s+/g, " ").trim().substring(0, 15);
+        const suffix = matchText.replace(/\s+/g, " ").trim().slice(-15);
+        const pIdx = html.indexOf(prefix);
+        if (pIdx >= 0) {
+          const sIdx = html.indexOf(suffix, pIdx);
+          if (sIdx >= 0) {
+            const end = sIdx + suffix.length;
+            const originalSnippet = html.substring(pIdx, end);
+            html = html.substring(0, pIdx) + `<mark style="background:${C.hlBg};border-bottom:2px solid ${C.hl};padding:1px 0">${originalSnippet}</mark>` + html.substring(end);
+          }
+        }
       }
     }
     if (showRecs) {
