@@ -230,7 +230,7 @@ export default function App() {
   const totalSeconds = clips.reduce((s, c) => s + (c.seconds || Math.round(c.text.length / CPS)), 0);
 
   const copyAll = () => {
-    const text = clips.map((c, i) => `[${i + 1}] ${c.text}`).join("\n\n");
+    const text = clips.map(c => c.text).join("\n");
     navigator.clipboard.writeText(text);
     setCopied(true); setTimeout(() => setCopied(false), 2000);
   };
