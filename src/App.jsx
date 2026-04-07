@@ -188,28 +188,22 @@ export default function App() {
 
   const addFromRec = (rec) => {
     if (clips.some(c => c.originalText === rec.text || c.text === rec.text)) return;
-    // Find blockId — try exact match first, then normalized match
+    // Find blockId using robust matching
     let blockId = null;
-    const normalize = (s) => s.replace(/\s+/g, " ").trim();
-    const recNorm = normalize(rec.text);
     for (const b of blocks) {
-      if (b.text.includes(rec.text)) { blockId = b.id; break; }
-    }
-    if (blockId === null) {
-      for (const b of blocks) {
-        if (normalize(b.text).includes(recNorm)) { blockId = b.id; break; }
-      }
+      if (findBestMatch(b.text, rec.text)) { blockId = b.id; break; }
     }
     setClips(prev => [...prev, { id: Date.now() + Math.random(), text: rec.text, originalText: rec.text, blockId, seconds: Math.round(rec.text.length / CPS), reason: rec.reason }]);
     // Scroll to the matching block in the left panel
-    const scrollTarget = blockId !== null ? blockId : blocks.findIndex(b => normalize(b.text).includes(recNorm));
-    const targetId = blockId !== null ? blockId : (scrollTarget >= 0 ? blocks[scrollTarget].id : null);
+    const targetId = blockId !== null ? blockId : (() => {
+      for (const b of blocks) { if (findBestMatch(b.text, rec.text)) return b.id; }
+      return null;
+    })();
     if (targetId !== null) {
       setTimeout(() => {
         const el = document.querySelector(`[data-blockid="${targetId}"]`);
         if (el) {
           el.scrollIntoView({ behavior: "smooth", block: "center" });
-          // Brief flash effect to draw attention
           el.style.transition = "box-shadow 0.3s";
           el.style.boxShadow = `0 0 0 2px ${C.ac}`;
           setTimeout(() => { el.style.boxShadow = ""; }, 1500);
@@ -237,28 +231,64 @@ export default function App() {
     setCopied(true); setTimeout(() => setCopied(false), 2000);
   };
 
+  // Find best matching position of clipText within blockText, tolerating LLM variations
+  const findBestMatch = (blockText, clipText) => {
+    // 1) Exact match
+    let idx = blockText.indexOf(clipText);
+    if (idx >= 0) return { start: idx, end: idx + clipText.length, exact: true };
+    // 2) Try progressively shorter substrings from the clip (sliding window)
+    // Use chunks of 20+ chars from the clip to find the block region
+    const minChunk = 20;
+    if (clipText.length < minChunk) return null;
+    // Try to find the longest matching substring
+    let bestStart = -1, bestEnd = -1, bestLen = 0;
+    // Check first half and second half anchors
+    for (let len = Math.min(clipText.length, 40); len >= minChunk; len -= 5) {
+      // Try from start of clip
+      const headChunk = clipText.substring(0, len);
+      const hIdx = blockText.indexOf(headChunk);
+      if (hIdx >= 0 && len > bestLen) {
+        // Found start anchor — now find end anchor
+        const tailChunk = clipText.slice(-Math.min(len, 30));
+        const tIdx = blockText.indexOf(tailChunk, hIdx);
+        if (tIdx >= 0) {
+          bestStart = hIdx;
+          bestEnd = tIdx + tailChunk.length;
+          bestLen = bestEnd - bestStart;
+          break;
+        } else {
+          // End anchor not found, use estimated end
+          bestStart = hIdx;
+          bestEnd = Math.min(hIdx + clipText.length + 10, blockText.length);
+          bestLen = len;
+        }
+      }
+    }
+    if (bestStart >= 0 && bestLen >= minChunk) return { start: bestStart, end: bestEnd, exact: false };
+    // 3) Try from end of clip
+    for (let len = Math.min(clipText.length, 40); len >= minChunk; len -= 5) {
+      const tailChunk = clipText.slice(-len);
+      const tIdx = blockText.indexOf(tailChunk);
+      if (tIdx >= 0) {
+        const estimatedStart = Math.max(0, tIdx - clipText.length + len);
+        return { start: estimatedStart, end: tIdx + tailChunk.length, exact: false };
+      }
+    }
+    return null;
+  };
+
   const renderBlock = (block) => {
     let html = block.text;
     for (const clip of clips) {
-      // Only highlight in the block where it was selected
       if (clip.blockId !== null && clip.blockId !== undefined && clip.blockId !== block.id) continue;
       const matchText = clip.originalText || clip.text;
-      let idx = html.indexOf(matchText);
-      if (idx >= 0) {
-        html = html.substring(0, idx) + `<mark style="background:${C.hlBg};border-bottom:2px solid ${C.hl};padding:1px 0">${matchText}</mark>` + html.substring(idx + matchText.length);
-      } else {
-        // Fallback: match first 15 chars to find approximate location, then highlight
-        const prefix = matchText.replace(/\s+/g, " ").trim().substring(0, 15);
-        const suffix = matchText.replace(/\s+/g, " ").trim().slice(-15);
-        const pIdx = html.indexOf(prefix);
-        if (pIdx >= 0) {
-          const sIdx = html.indexOf(suffix, pIdx);
-          if (sIdx >= 0) {
-            const end = sIdx + suffix.length;
-            const originalSnippet = html.substring(pIdx, end);
-            html = html.substring(0, pIdx) + `<mark style="background:${C.hlBg};border-bottom:2px solid ${C.hl};padding:1px 0">${originalSnippet}</mark>` + html.substring(end);
-          }
-        }
+      const match = findBestMatch(html, matchText);
+      if (match) {
+        // Don't highlight inside existing <mark> tags
+        const before = html.substring(0, match.start);
+        if (before.lastIndexOf("<mark") > before.lastIndexOf("</mark>")) continue;
+        const snippet = html.substring(match.start, match.end);
+        html = before + `<mark style="background:${C.hlBg};border-bottom:2px solid ${C.hl};padding:1px 0">${snippet}</mark>` + html.substring(match.end);
       }
     }
     if (showRecs) {
