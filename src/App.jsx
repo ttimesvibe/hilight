@@ -364,6 +364,26 @@ export default function App() {
     setTsCopied(true); setTimeout(() => setTsCopied(false), 2000);
   };
 
+  const scrollToClip = (clip) => {
+    const matchText = clip.originalText || clip.text;
+    // Find which block contains this clip
+    let targetId = clip.blockId;
+    if (targetId === null || targetId === undefined) {
+      for (const b of blocks) {
+        if (findBestMatch(b.text, matchText)) { targetId = b.id; break; }
+      }
+    }
+    if (targetId !== null && targetId !== undefined) {
+      const el = document.querySelector(`[data-blockid="${targetId}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.style.transition = "box-shadow 0.3s";
+        el.style.boxShadow = `0 0 0 2px ${C.ac}`;
+        setTimeout(() => { el.style.boxShadow = ""; }, 1500);
+      }
+    }
+  };
+
   const getTimeColor = () => {
     if (totalSeconds >= 30 && totalSeconds <= 40) return C.ok;
     if (totalSeconds > 40) return "#DC2626";
@@ -507,7 +527,7 @@ export default function App() {
           style={{padding:"10px 12px",marginBottom:8,borderRadius:8,border:"1px solid "+C.hlBd,
             background:C.hlBg,cursor:"grab",opacity:dragIdx===idx?0.5:1}}>
           <div style={{display:"flex",alignItems:"flex-start",gap:8}}>
-            <span style={{fontSize:11,color:C.ac,fontWeight:800,flexShrink:0,marginTop:8,cursor:"grab"}}>{idx+1}</span>
+            <span onClick={()=>scrollToClip(clip)} style={{fontSize:11,color:C.ac,fontWeight:800,flexShrink:0,marginTop:8,cursor:"pointer",userSelect:"none"}} title="원고에서 찾기">{idx+1}</span>
             <div style={{flex:1,minWidth:0}}>
               <textarea value={clip.text}
                 onMouseDown={e=>e.stopPropagation()}
@@ -519,7 +539,7 @@ export default function App() {
                 onFocus={e=>{e.target.style.borderColor=C.ac;e.target.style.background="#fff"}}
                 onBlur={e=>{e.target.style.borderColor="transparent";e.target.style.background="rgba(255,255,255,0.5)"}}
                 rows={Math.max(2,Math.ceil(clip.text.length/28))}/>
-              <div style={{fontSize:11,color:C.txD,marginTop:4}}>~{clip.seconds || Math.round(clip.text.length/CPS)}초</div>
+              <div onClick={()=>scrollToClip(clip)} style={{fontSize:11,color:C.txD,marginTop:4,cursor:"pointer"}} title="원고에서 찾기">~{clip.seconds || Math.round(clip.text.length/CPS)}초</div>
             </div>
             <button onClick={()=>removeClip(clip.id)}
               style={{fontSize:14,color:C.txD,background:"none",border:"none",cursor:"pointer",flexShrink:0,padding:"0 4px"}}>×</button>
