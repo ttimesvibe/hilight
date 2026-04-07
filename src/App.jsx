@@ -50,6 +50,7 @@ export default function App() {
             setBlocks(data.session.blocks || []);
             setClips(data.session.clips || []);
             setRecs(data.session.recs || []);
+            if (data.session.timestamps) { setTimestamps(data.session.timestamps); setShowTimestamps(false); }
           }
         }).catch(() => {});
     }
@@ -107,7 +108,7 @@ export default function App() {
   const saveSession = useCallback(async () => {
     setSaving(true);
     try {
-      const session = { filename: fn, script, blocks, clips, recs, savedAt: new Date().toISOString() };
+      const session = { filename: fn, script, blocks, clips, recs, timestamps, savedAt: new Date().toISOString() };
       const res = await fetch(WORKER_URL + "/save", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: sessionId, session }),
@@ -121,7 +122,7 @@ export default function App() {
       setLastSavedClips(JSON.stringify(clips));
     } catch (e) { setErr("저장 실패: " + e.message); }
     finally { setSaving(false); }
-  }, [fn, script, blocks, clips, recs, sessionId]);
+  }, [fn, script, blocks, clips, recs, timestamps, sessionId]);
 
   // 자동 저장 (TTL 7일) — 변경 감지 + 3분 디바운스
   const [lastSavedClips, setLastSavedClips] = useState("");
@@ -140,7 +141,7 @@ export default function App() {
     autoSaveTimer.current = setTimeout(async () => {
       setAutoSaveStatus("saving");
       try {
-        const session = { filename: fn, script, blocks, clips, recs, savedAt: new Date().toISOString() };
+        const session = { filename: fn, script, blocks, clips, recs, timestamps, savedAt: new Date().toISOString() };
         const id = sessionId || (Date.now().toString(36) + Math.random().toString(36).substring(2, 8));
         const res = await fetch(WORKER_URL + "/autosave", {
           method: "POST", headers: { "Content-Type": "application/json" },
@@ -402,9 +403,9 @@ export default function App() {
         {autoSaveStatus==="pending"?"⏳ 자동 저장 대기":autoSaveStatus==="saving"?"💾 자동 저장 중...":"✓ 자동 저장됨"}
       </span>}
       <div style={{marginLeft:"auto",display:"flex",gap:8}}>
-        {blocks.length > 0 && <button onClick={generateTimestamps} disabled={tsLoading}
-          style={{fontSize:12,padding:"5px 14px",borderRadius:6,border:"1px solid #8B5CF6",background:tsLoading?"#999":"rgba(139,92,246,0.08)",color:tsLoading?"#fff":"#8B5CF6",fontWeight:600,cursor:"pointer"}}>
-          {tsLoading ? "생성 중..." : "📌 타임스탬프"}</button>}
+        {blocks.length > 0 && <button onClick={timestamps ? ()=>setShowTimestamps(!showTimestamps) : generateTimestamps} disabled={tsLoading}
+          style={{fontSize:12,padding:"5px 14px",borderRadius:6,border:"1px solid #8B5CF6",background:tsLoading?"#999":timestamps&&showTimestamps?"#8B5CF6":"rgba(139,92,246,0.08)",color:tsLoading?"#fff":timestamps&&showTimestamps?"#fff":"#8B5CF6",fontWeight:600,cursor:"pointer"}}>
+          {tsLoading ? "생성 중..." : timestamps ? (showTimestamps ? "📌 타임스탬프 ▲" : "📌 타임스탬프 ▼") : "📌 타임스탬프"}</button>}
         {clips.length > 0 && <>
           <button onClick={saveSession} disabled={saving}
             style={{fontSize:12,padding:"5px 14px",borderRadius:6,border:"none",background:saving?"#999":C.ac,color:C.btnTx,fontWeight:600,cursor:"pointer"}}>
@@ -481,6 +482,9 @@ export default function App() {
           <div style={{padding:"10px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:showTimestamps?"1px solid rgba(139,92,246,0.15)":"none"}}>
             <div style={{fontSize:13,fontWeight:700,color:"#8B5CF6"}}>📌 타임스탬프 ({timestamps.length}개)</div>
             <div style={{display:"flex",gap:6}}>
+              <button onClick={generateTimestamps} disabled={tsLoading}
+                style={{fontSize:11,padding:"3px 10px",borderRadius:5,border:"1px solid rgba(139,92,246,0.3)",background:"transparent",color:"#8B5CF6",cursor:"pointer",fontWeight:600}}>
+                {tsLoading ? "생성 중..." : "🔄 재생성"}</button>
               <button onClick={copyTimestamps}
                 style={{fontSize:11,padding:"3px 10px",borderRadius:5,border:"1px solid rgba(139,92,246,0.3)",background:tsCopied?"#8B5CF6":"transparent",color:tsCopied?"#fff":"#8B5CF6",cursor:"pointer",fontWeight:600}}>
                 {tsCopied ? "✓ 복사됨" : "📋 복사"}</button>
