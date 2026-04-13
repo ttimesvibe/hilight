@@ -2,6 +2,18 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import * as mammoth from "mammoth";
 
 const WORKER_URL = "https://hilight.ttimes.workers.dev";
+const AUTH_URL = "https://auth.ttimes6000.workers.dev";
+function getAuthHeaders() {
+  const token = localStorage.getItem("ttimes_token");
+  return token ? { "Authorization": `Bearer ${token}` } : {};
+}
+function decodeJWT(token) {
+  try {
+    const b64 = token.split(".")[1];
+    const bytes = Uint8Array.from(atob(b64.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0));
+    return JSON.parse(new TextDecoder().decode(bytes));
+  } catch { return null; }
+}
 const FN = "'Pretendard Variable','Pretendard','Noto Sans KR',-apple-system,sans-serif";
 const C = {
   bg:"#F5F6FA",sf:"#FFFFFF",bd:"#D8DBE5",tx:"#1A1D2E",txM:"#5C6078",txD:"#8B8FA3",
@@ -16,6 +28,51 @@ const C = {
 const CPS = 9.0; // ttimes 학습 데이터 기준 542.7자/분
 
 export default function App() {
+  const [authState, setAuthState] = useState("checking");
+  const [authUser, setAuthUser] = useState(null);
+  useEffect(() => {
+    const token = localStorage.getItem("ttimes_token");
+    if (!token) { setAuthState("login"); return; }
+    try {
+      const payload = decodeJWT(token);
+      if (!payload || payload.exp < Date.now() / 1000) { localStorage.removeItem("ttimes_token"); setAuthState("login"); return; }
+      setAuthUser({ email: payload.sub, name: payload.name, role: payload.role });
+      setAuthState("authenticated");
+    } catch { localStorage.removeItem("ttimes_token"); setAuthState("login"); }
+  }, []);
+  if (authState === "checking") return <div style={{height:"100vh",background:"#F5F6FA",display:"flex",alignItems:"center",justifyContent:"center",color:"#8B8FA3",fontFamily:FN}}>로딩 중...</div>;
+  if (authState === "login") return <LoginScreen onLogin={(token, user) => { localStorage.setItem("ttimes_token", token); localStorage.setItem("ttimes_user", JSON.stringify(user)); setAuthUser(user); setAuthState("authenticated"); }} />;
+  return <AppMain authUser={authUser} onLogout={() => { localStorage.removeItem("ttimes_token"); localStorage.removeItem("ttimes_user"); setAuthUser(null); setAuthState("login"); }} />;
+}
+
+function LoginScreen({ onLogin }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const handleLogin = async (e) => {
+    e.preventDefault(); setLoading(true); setError("");
+    try {
+      const res = await fetch(`${AUTH_URL}/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
+      const data = await res.json();
+      if (data.success) { onLogin(data.token, data.user); } else { setError(data.error || "로그인 실패"); }
+    } catch { setError("서버 연결 실패"); } finally { setLoading(false); }
+  };
+  const iS = {width:"100%",padding:"12px 16px",borderRadius:8,border:"1px solid rgba(0,0,0,0.1)",background:"#fff",color:"#1A1D2E",fontSize:14,fontFamily:FN,outline:"none",boxSizing:"border-box"};
+  return <div style={{height:"100vh",background:"#F5F6FA",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:FN}}>
+    <div style={{background:"#fff",border:"1px solid #D8DBE5",borderRadius:16,padding:"48px 40px",width:"100%",maxWidth:400,boxShadow:"0 4px 24px rgba(0,0,0,0.06)"}}>
+      <h1 style={{textAlign:"center",fontSize:20,fontWeight:800,marginBottom:32,color:"#1A1D2E"}}><span style={{color:"#0891B2"}}>TTimes</span> 하이라이트</h1>
+      <form onSubmit={handleLogin}>
+        <div style={{marginBottom:16}}><label style={{fontSize:12,color:"#8B8FA3",marginBottom:6,display:"block"}}>아이디</label><input type="text" value={email} onChange={e=>setEmail(e.target.value)} style={iS} required autoFocus/></div>
+        <div style={{marginBottom:20}}><label style={{fontSize:12,color:"#8B8FA3",marginBottom:6,display:"block"}}>비밀번호</label><input type="password" value={password} onChange={e=>setPassword(e.target.value)} style={iS} required/></div>
+        {error && <div style={{padding:"10px 14px",borderRadius:8,marginBottom:16,background:"rgba(239,68,68,0.08)",color:"#EF4444",fontSize:13}}>{error}</div>}
+        <button type="submit" disabled={loading} style={{width:"100%",padding:"13px",borderRadius:8,border:"none",background:loading?"rgba(8,145,178,0.4)":"linear-gradient(135deg,#0891B2,#06B6D4)",color:"#fff",fontSize:15,fontWeight:600,cursor:loading?"not-allowed":"pointer",fontFamily:FN}}>{loading?"로그인 중...":"로그인"}</button>
+      </form>
+    </div>
+  </div>;
+}
+
+function AppMain({ authUser, onLogout }) {
   const [fn, setFn] = useState("");
   const [script, setScript] = useState("");
   const [blocks, setBlocks] = useState([]);
@@ -41,8 +98,8 @@ export default function App() {
     const sid = params.get("s");
     if (sid) {
       setSessionId(sid);
-      fetch(WORKER_URL + "/load?id=" + sid)
-        .then(r => r.json())
+      fetch(WORKER_URL + "/load?id=" + sid, { headers: { ...getAuthHeaders() } })
+        .then(r => { if (r.status === 401) { localStorage.removeItem("ttimes_token"); window.location.reload(); } return r.json(); })
         .then(data => {
           if (data.success && data.session) {
             setFn(data.session.filename || "");
@@ -94,9 +151,10 @@ export default function App() {
     setLoading(true); setErr(null);
     try {
       const res = await fetch(WORKER_URL + "/recommend", {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify({ script }),
       });
+      if (res.status === 401) { localStorage.removeItem("ttimes_token"); window.location.reload(); return; }
       const data = await res.json();
       if (!data.success) throw new Error(data.error);
       setRecs(data.result.candidates || []);
@@ -110,9 +168,10 @@ export default function App() {
     try {
       const session = { filename: fn, script, blocks, clips, recs, timestamps, savedAt: new Date().toISOString() };
       const res = await fetch(WORKER_URL + "/save", {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify({ id: sessionId, session }),
       });
+      if (res.status === 401) { localStorage.removeItem("ttimes_token"); window.location.reload(); return; }
       const data = await res.json();
       if (!data.success) throw new Error(data.error);
       setSessionId(data.id);
@@ -144,9 +203,10 @@ export default function App() {
         const session = { filename: fn, script, blocks, clips, recs, timestamps, savedAt: new Date().toISOString() };
         const id = sessionId || (Date.now().toString(36) + Math.random().toString(36).substring(2, 8));
         const res = await fetch(WORKER_URL + "/autosave", {
-          method: "POST", headers: { "Content-Type": "application/json" },
+          method: "POST", headers: { "Content-Type": "application/json", ...getAuthHeaders() },
           body: JSON.stringify({ id, session }),
         });
+        if (res.status === 401) { localStorage.removeItem("ttimes_token"); window.location.reload(); return; }
         const data = await res.json();
         if (data.success) {
           if (!sessionId) {
@@ -321,9 +381,10 @@ export default function App() {
     setTsLoading(true); setErr(null);
     try {
       const res = await fetch(WORKER_URL + "/timestamps", {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify({ script }),
       });
+      if (res.status === 401) { localStorage.removeItem("ttimes_token"); window.location.reload(); return; }
       const data = await res.json();
       if (!data.success) throw new Error(data.error);
       const chapters = data.result.chapters || [];
@@ -418,6 +479,8 @@ export default function App() {
             📋 텍스트 복사</button>
         </>}
         {fn && <button onClick={reset} style={{fontSize:12,padding:"5px 14px",borderRadius:6,border:"1px solid "+C.bd,background:C.sf,color:C.txM,cursor:"pointer"}}>× 새 파일</button>}
+        {authUser && <span style={{fontSize:12,color:C.txM,padding:"3px 10px",borderRadius:6,background:C.glass2}}>{authUser.name || authUser.email}</span>}
+        {onLogout && <button onClick={onLogout} style={{fontSize:12,padding:"5px 14px",borderRadius:6,border:"1px solid "+C.bd,background:C.sf,color:C.txM,cursor:"pointer"}}>로그아웃</button>}
       </div>
     </div>
 
