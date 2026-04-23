@@ -467,17 +467,19 @@ function AppMain({ authUser, onLogout }) {
         {blocks.length > 0 && <button onClick={timestamps ? ()=>setShowTimestamps(!showTimestamps) : generateTimestamps} disabled={tsLoading}
           style={{fontSize:12,padding:"5px 14px",borderRadius:6,border:"1px solid #8B5CF6",background:tsLoading?"#999":timestamps&&showTimestamps?"#8B5CF6":"rgba(139,92,246,0.08)",color:tsLoading?"#fff":timestamps&&showTimestamps?"#fff":"#8B5CF6",fontWeight:600,cursor:"pointer"}}>
           {tsLoading ? "생성 중..." : timestamps ? (showTimestamps ? "📌 타임스탬프 ▲" : "📌 타임스탬프 ▼") : "📌 타임스탬프"}</button>}
-        {clips.length > 0 && <>
+        {/* 저장/공유는 fn(파일 로드) 후 항상 표시 — 빈 클립 상태로 다른 편집자에게 인계 가능 */}
+        {fn && <>
           <button onClick={saveSession} disabled={saving}
             style={{fontSize:12,padding:"5px 14px",borderRadius:6,border:"none",background:saving?"#999":C.ac,color:C.btnTx,fontWeight:600,cursor:"pointer"}}>
             {saving ? "저장 중..." : shareUrl ? "💾 다시 저장" : "💾 저장"}</button>
           {shareUrl && <button onClick={copyShareUrl}
             style={{fontSize:12,padding:"5px 14px",borderRadius:6,border:"1px solid "+C.ac,background:copied?C.ac:C.sf,color:copied?C.btnTx:C.ac,fontWeight:600,cursor:"pointer"}}>
             {copied ? "✓ 복사됨" : "🔗 공유"}</button>}
-          <button onClick={copyAll}
-            style={{fontSize:12,padding:"5px 14px",borderRadius:6,border:"1px solid "+C.bd,background:C.sf,color:C.txM,cursor:"pointer"}}>
-            📋 텍스트 복사</button>
         </>}
+        {/* 텍스트 복사는 실제 클립 있을 때만 */}
+        {clips.length > 0 && <button onClick={copyAll}
+          style={{fontSize:12,padding:"5px 14px",borderRadius:6,border:"1px solid "+C.bd,background:C.sf,color:C.txM,cursor:"pointer"}}>
+          📋 텍스트 복사</button>}
         {fn && <button onClick={reset} style={{fontSize:12,padding:"5px 14px",borderRadius:6,border:"1px solid "+C.bd,background:C.sf,color:C.txM,cursor:"pointer"}}>× 새 파일</button>}
         {authUser && <span style={{fontSize:12,color:C.txM,padding:"3px 10px",borderRadius:6,background:C.glass2}}>{authUser.name || authUser.email}</span>}
         {onLogout && <button onClick={onLogout} style={{fontSize:12,padding:"5px 14px",borderRadius:6,border:"1px solid "+C.bd,background:C.sf,color:C.txM,cursor:"pointer"}}>로그아웃</button>}
